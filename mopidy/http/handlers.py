@@ -39,7 +39,6 @@ def make_mopidy_app_factory(apps, statics):
 
 
 def make_jsonrpc_wrapper(core_actor):
-    inspector = jsonrpc.JsonRpcInspector(
         objects={
             'core.get_uri_schemes': core.Core.get_uri_schemes,
             'core.get_version': core.Core.get_version,
@@ -49,8 +48,13 @@ def make_jsonrpc_wrapper(core_actor):
             'core.playback': core.PlaybackController,
             'core.playlists': core.PlaylistsController,
             'core.tracklist': core.TracklistController,
-        })
-    return jsonrpc.JsonRpcWrapper(
+             'core.service': core.ServiceController,
+             }
+    services = core_actor.get_public_service_classes().get()
+    for t in services.keys():
+        objects[t] = services[t]
+
+    inspector = jsonrpc.JsonRpcInspector(objects)
         objects={
             'core.describe': inspector.describe,
             'core.get_uri_schemes': core_actor.get_uri_schemes,
@@ -61,7 +65,13 @@ def make_jsonrpc_wrapper(core_actor):
             'core.playback': core_actor.playback,
             'core.playlists': core_actor.playlists,
             'core.tracklist': core_actor.tracklist,
-        },
+             'core.service': core_actor.service,
+             }
+    services = core_actor.get_public_services().get()
+    for t in services.keys():
+        objects[t] = services[t]
+    return jsonrpc.JsonRpcWrapper(
+        objects,
         decoders=[models.model_json_decoder],
         encoders=[models.ModelJSONEncoder]
     )

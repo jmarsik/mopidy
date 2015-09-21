@@ -176,6 +176,15 @@ class CoreListener(listener.Listener):
         """
         pass
 
+    def startup_complete(self):
+        """
+        Called when the start-up of audio, backends, services, core and
+        all frontends has completed.
+
+        *MAY* be implemented by actor.
+        """
+        pass
+
     def stream_title_changed(self, title):
         """
         Called whenever the currently playing stream title changes.

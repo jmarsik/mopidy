@@ -200,12 +200,26 @@ Core events
 .. autoclass:: mopidy.core.CoreListener
     :members:
 
+
+Service controller
+==================
+
+Provides a management API for any extensions that have registered as a service e.g., allows
+extension properties to be set dynamically.
+
+.. autoclass:: mopidy.core.ServiceController
+    :members:
+
+
+Core events
+=============
+
+.. autoclass:: mopidy.core.CoreListener
+    :members:
+
+
 Deprecated API features
 =======================
-
-.. warning::
-  Though these features still work, they are slated to go away in the next
-  major Mopidy release.
 
 Core
 ----

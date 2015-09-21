@@ -6,8 +6,9 @@ import logging
 
 import pykka
 
-from mopidy import audio, backend, mixer
+from mopidy import audio, backend, mixer, service
 from mopidy.audio import PlaybackState
+from mopidy.core.service import ServiceController
 from mopidy.core.history import HistoryController
 from mopidy.core.library import LibraryController
 from mopidy.core.listener import CoreListener
@@ -17,6 +18,9 @@ from mopidy.core.playlists import PlaylistsController
 from mopidy.core.tracklist import TracklistController
 from mopidy.internal import versioning
 from mopidy.internal.deprecation import deprecated_property
+
+
+actor_name = lambda a: a.actor_ref.actor_class.__name__
 
 
 logger = logging.getLogger(__name__)
@@ -44,12 +48,34 @@ class Core(
     tracklist = None
     """An instance of :class:`~mopidy.core.TracklistController`"""
 
-    def __init__(self, config=None, mixer=None, backends=None, audio=None):
+    service = None
+    """The service controller. An instance of
+    :class:`mopidy.core.ServiceController`."""
+
+    def __init__(self, audio=None, config=None, mixer=None, backends=None, backend_classes=[]):
+
         super(Core, self).__init__()
 
+        self.audio = audio
         self._config = config
 
         self.backends = Backends(backends)
+
+        # A backend may also be a service, so we check if the backend
+        # inherits the service class and append it to the service
+        # class list if it does
+        services = []
+        service_classes = []
+        idx = 0
+        for b in backends:
+            if (idx < len(backend_classes) and issubclass(backend_classes[idx], service.Service)):
+                services.append(b)
+                service_classes.append(backend_classes[idx])
+            idx += 1
+
+        self.services = Services(services, service_classes)
+
+        self.service = ServiceController(services=self.services, core=self)
 
         self.library = LibraryController(backends=self.backends, core=self)
         self.history = HistoryController()
@@ -58,7 +84,6 @@ class Core(
         self.playlists = PlaylistsController(backends=self.backends, core=self)
         self.tracklist = TracklistController(core=self)
 
-        self.audio = audio
 
     def get_uri_schemes(self):
         """Get list of URI schemes we can handle"""
@@ -116,10 +141,14 @@ class Core(
         # Forward event from mixer to frontends
         CoreListener.send('mute_changed', mute=mute)
 
+    def notify_startup_complete(self):
+        """Notifier to inform listeners that start-up is now complete - it should
+        only be called once as part of the start-up code"""
+        CoreListener.send('startup_complete')
+
     def tags_changed(self, tags):
         if not self.audio or 'title' not in tags:
             return
-
         tags = self.audio.get_current_tags().get()
         if not tags:
             return
@@ -131,6 +160,27 @@ class Core(
             title = tags['title'][0]
             self.playback._stream_title = title
             CoreListener.send('stream_title_changed', title=title)
+
+
+    def register_service(self, service_obj, service_class):
+        """Register a new service after core has started e.g., a frontend"""
+        self.services.add_service(service_obj, service_class)
+        CoreListener.send('service_registered', service=service_obj.name.get())
+
+    def get_public_services(self):
+        """Obtain a list of service actors whose API is publicly exported"""
+        return self.services.public_services_by_name
+
+    def get_public_service_classes(self):
+        """Obtain a list of service classes whose API is publicly exported"""
+        return self.services.public_classes_by_name
+
+    def add_audio_sink(self, ident, sink_obj):
+        """Add an audio sink object dynamically to the running audio pipeline"""
+        self.audio.add_sink(ident, sink_obj)
+
+    def remove_audio_sink(self, ident):
+        self.audio.remove_sink(ident)
 
 
 class Backends(list):
@@ -163,7 +213,7 @@ class Backends(list):
                 assert scheme not in backends_by_scheme, (
                     'Cannot add URI scheme "%s" for %s, '
                     'it is already handled by %s'
-                ) % (scheme, name(b), name(backends_by_scheme[scheme]))
+                ) % (scheme, actor_name(b), actor_name(backends_by_scheme[scheme]))
                 backends_by_scheme[scheme] = b
 
                 if has_library:
@@ -174,3 +224,32 @@ class Backends(list):
                     self.with_playback[scheme] = b
                 if has_playlists:
                     self.with_playlists[scheme] = b
+
+
+class Services(list):
+    def __init__(self, services, service_classes):
+        super(Services, self).__init__(services)
+
+        self.services_by_name = {}
+        self.classes_by_name = {}
+        # Public services will have their full APIs exported to HTTP/JSON RPC -
+        # this will be a subset of the above dictionaries
+        self.public_services_by_name = {}
+        self.public_classes_by_name = {}
+
+        idx = 0
+        for s in services:
+            self.add_service(s, service_classes[idx])
+            idx += 1
+
+    def add_service(self, s, service_class):
+        logger.info('Adding service %s-%s', s, service_class)
+        assert s.name.get() not in self.services_by_name, (
+            'Cannot add service name %s for %s, '
+            'it is already taken by %s'
+        ) % (s.name.get(), actor_name(s), actor_name(self.services_by_name[s.name.get()]))
+        self.services_by_name[s.name.get()] = s
+        self.classes_by_name[s.name.get()] = service_class
+        if (s.public.get()):
+            self.public_services_by_name[s.name.get()] = s
+            self.public_classes_by_name[s.name.get()] = service_class

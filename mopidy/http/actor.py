@@ -15,6 +15,7 @@ import tornado.websocket
 
 from mopidy import exceptions, models, zeroconf
 from mopidy.core import CoreListener
+from mopidy.service import ServiceListener
 from mopidy.http import handlers
 from mopidy.internal import encoding, formatting, network
 
@@ -22,7 +23,7 @@ from mopidy.internal import encoding, formatting, network
 logger = logging.getLogger(__name__)
 
 
-class HttpFrontend(pykka.ThreadingActor, CoreListener):
+class HttpFrontend(pykka.ThreadingActor, CoreListener, ServiceListener):
     apps = []
     statics = []
 
@@ -74,6 +75,9 @@ class HttpFrontend(pykka.ThreadingActor, CoreListener):
         self.server.stop()
 
     def on_event(self, name, **data):
+        # Reset app handlers in case any new services were registered since we started
+        if (name == 'startup_complete' or name == 'service_registered'):
+            self.server.reset_app_handlers()
         on_event(name, **data)
 
 
@@ -112,6 +116,10 @@ class HttpServer(threading.Thread):
         logger.debug('Stopping HTTP server')
         tornado.ioloop.IOLoop.instance().add_callback(
             tornado.ioloop.IOLoop.instance().stop)
+
+    def reset_app_handlers(self):
+        # This will also replace existing app handlers
+        self.app.add_handlers(".*$", self._get_app_request_handlers())
 
     def _get_request_handlers(self):
         request_handlers = []

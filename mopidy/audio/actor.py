@@ -16,6 +16,7 @@ from mopidy import exceptions
 from mopidy.audio import icy, utils
 from mopidy.audio.constants import PlaybackState
 from mopidy.audio.listener import AudioListener
+from mopidy.audio.output import AudioOutput
 from mopidy.internal import deprecation, process
 
 
@@ -66,6 +67,16 @@ class _Signals(object):
 
 # TODO: expose this as a property on audio?
 class _Appsrc(object):
+    def _on_debug_timer_tick(self):
+        if (self._playbin):
+            gst.DEBUG_BIN_TO_DOT_FILE(self._playbin, gst.DEBUG_GRAPH_SHOW_ALL,
+                                      self._config['audio']['debug_dump_gstreamer_dot_file'])
+            return True
+        return False
+
+    def _connect(self, element, event, *args):
+        """Helper to keep track of signal ids based on element+event"""
+        self._signal_ids[(element, event)] = element.connect(event, *args)
 
     """Helper class for dealing with appsrc based playback."""
 
@@ -75,11 +86,14 @@ class _Appsrc(object):
 
     def reset(self):
         """Reset the helper.
-
         Should be called whenever the source changes and we are not setting up
         a new appsrc.
         """
         self.prepare(None, None, None, None)
+
+        playbin.set_property('buffer-size', 2*1024*1024)
+        playbin.set_property('buffer-duration', 2*gst.SECOND)
+        playbin.set_property('async-handling', True)
 
     def prepare(self, caps, need_data, enough_data, seek_data):
         """Store info we will need when the appsrc element gets installed."""
@@ -92,10 +106,33 @@ class _Appsrc(object):
 
     def configure(self, source):
         """Configure the supplied source for use.
-
         Should be called whenever we get a new appsrc.
         """
         source.set_property('caps', self._caps)
+
+        # Makes debugging gstreamer pipelines easier -- you need to set
+        # the environment variable GST_DEBUG_DUMP_DOT_DIR for the
+        # dot file to be dumped
+        if self._config['audio']['debug_dump_gstreamer_dot_file']:
+            gobject.timeout_add(2000, self._on_debug_timer_tick)
+
+    def _on_about_to_finish(self, element):
+        source, self._appsrc = self._appsrc, None
+        if source is None:
+            return
+        self._appsrc_caps = None
+
+        self._disconnect(source, 'need-data')
+        self._disconnect(source, 'enough-data')
+        self._disconnect(source, 'seek-data')
+
+    def _on_new_source(self, element, pad):
+        uri = element.get_property('uri')
+        if not uri or not uri.startswith('appsrc://'):
+            return
+
+        source = element.get_property('source')
+        source.set_property('caps', self._appsrc_caps)
         source.set_property('format', b'time')
         source.set_property('stream-type', b'seekable')
         source.set_property('max-bytes', 1 << 20)  # 1MB
@@ -152,10 +189,14 @@ class _Outputs(gst.Bin):
         self._add(fakesink)
 
     def add_output(self, description):
-        # XXX This only works for pipelines not in use until #790 gets done.
         try:
-            output = gst.parse_bin_from_description(
-                description, ghost_unconnected_pads=True)
+            if (description):
+                output = gst.parse_bin_from_description(
+                            description, ghost_unconnected_pads=True)
+            else:
+                output = AudioOutput()
+            self._playbin.set_property('audio-sink', output)
+            logger.info('Audio output set to "%s"', description)
         except gobject.GError as ex:
             logger.error(
                 'Failed to create audio output "%s": %s', description, ex)
@@ -773,3 +814,39 @@ class Audio(pykka.ThreadingActor):
         # TODO: should we return None when stopped?
         # TODO: support only fetching keys we care about?
         return self._tags
+
+    def add_sink(self, ident, sink_obj):
+        """
+        Add a new audio sink to the dynamic audio output
+
+        :param ident: Unique identifier which will be used as an opaque
+            reference to the sink_obj
+        :type ident: opaque any type which may be referenced in a
+            python dictionary
+        :param sink_obj: a gstreamer object which implements the audio sink
+        :type gst.Bin or derivative of gst.BaseSink
+        """
+        output_desc = self._config['audio'].get('output')
+        if (output_desc):
+            logger.error('User has not configured dynamic audio output')
+        else:
+            logger.info('Adding audio sink sink_obj=%s', sink_obj)
+            output = self._playbin.get_property('audio-sink')
+            output.add_sink(ident, sink_obj)
+
+    def remove_sink(self, ident):
+        """
+        Remove an existing audio sink from the dynamic audio output
+
+        :param ident: Unique identifier used as an opaque
+            reference to a sink_obj
+        :type ident: opaque any type which may be referenced in a
+            python dictionary
+        """
+        output_desc = self._config['audio'].get('output')
+        if (output_desc):
+            logger.error('User has not configured dynamic audio output')
+        else:
+            logger.info('Removing audio sink ident=%s', ident)
+            output = self._playbin.get_property('audio-sink')
+            output.remove_sink(ident)

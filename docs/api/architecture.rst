@@ -4,8 +4,8 @@
 Architecture
 ************
 
-The overall architecture of Mopidy is organized around multiple frontends and
-backends. The frontends use the core API. The core actor makes multiple backends
+The overall architecture of Mopidy is organized around multiple frontends and backends.
+The frontends use the core API. The core actor makes multiple backends
 work as one. The backends connect to various music sources. The core actor use
 the mixer actor to control volume, while the backends use the audio actor to
 play audio.
@@ -16,6 +16,12 @@ play audio.
     Core -> "Multiple backends"
     Core -> Mixer
     "Multiple backends" -> Audio
+
+
+Further to the above architecture is a "service" interface which may be inherited by any
+extension (frontend or backend) in order to support dynamic property configuration and/or
+export their API through the http interface thus enabling an end-user to interact with them
+through the Mopidy web server.
 
 
 Frontends
@@ -56,6 +62,7 @@ See :ref:`core-api` for more details.
     Core -> "Library\ncontroller"
     Core -> "Playback\ncontroller"
     Core -> "Playlists\ncontroller"
+    Core -> "Service\ncontroller"
     Core -> "History\ncontroller"
 
     "Library\ncontroller" -> "Local backend"
@@ -68,6 +75,9 @@ See :ref:`core-api` for more details.
     "Playlists\ncontroller" -> "Local backend"
     "Playlists\ncontroller" -> "Spotify backend"
 
+    "Service\ncontroller" -> "Bluetooth service"
+    "Service\ncontroller" -> "Pulse audio service"
+    "Service\ncontroller" -> "Extension property setter/getter"
 
 Backends
 ========
@@ -96,10 +106,22 @@ Audio
 =====
 
 The audio actor is a thin wrapper around the parts of the GStreamer library we
-use. If you implement an advanced backend, you may need to implement your own
-playback provider using the :ref:`audio-api`, but most backends can use the
-default playback provider without any changes.
+use. In addition to playback, it's responsible for volume control through both
+GStreamer's own volume mixers, and mixers we've created ourselves. If you
+implement an advanced backend, you may need to implement your own playback
+provider using the :ref:`audio-api`.
 
+Services
+========
+
+Services allow the functionality of an extension to be exposed through HTTP (via JSON RPC) and
+grouped under an assigned unique service name.
+
+Services may also be stopped/restarted under user control, by their service name, after the HTTP
+service has started.  Furthermore, services allow internal extension properties to be dynamically
+get or set where required thus avoiding the need to edit configuration files on the host.
+
+See :ref:`service-api` for more details.
 
 Mixer
 =====

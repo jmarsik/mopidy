@@ -11,6 +11,10 @@ WebSocket API for use both from browsers and Node.js. The
 :ref:`http-explore-extension` extension, can also be used to get you
 familiarized with HTTP based APIs.
 
+For application-specific and ad-hoc functionality outside :ref:`core-api` it is
+recommended that you write a service.  Service classes have their APIs exported
+through JSON-RPC automatically during start-up.
+
 
 .. _http-post-api:
 
@@ -27,6 +31,11 @@ Example usage from the command line::
 
     $ curl -d '{"jsonrpc": "2.0", "id": 1, "method": "core.playback.get_state"}' http://localhost:6680/mopidy/rpc
     {"jsonrpc": "2.0", "id": 1, "result": "stopped"}
+
+Note that the above will also work for API calls to a named service.  For example::
+
+    $ curl -d '{"jsonrpc": "2.0", "id": 1, "method": "bluetooth.get_devices"}' http://localhost:6680/mopidy/rpc
+    {"jsonrpc": "2.0", "id": 1, "result": []}
 
 For details on the request and response format, see :ref:`json-rpc`.
 
@@ -93,3 +102,8 @@ arguments are all included as extra fields on the event objects. Example event
 message::
 
     {"event": "track_playback_started", "track": {...}}
+
+If you are writing a service, then refer to the :class:`~mopidy.core.ServiceListener`
+method names for mandatory event types.  An example service event message::
+
+    {"event": "service_started", "service": "bluetooth"}

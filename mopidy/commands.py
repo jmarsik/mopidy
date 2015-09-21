@@ -13,7 +13,7 @@ import gobject
 
 import pykka
 
-from mopidy import config as config_lib, exceptions
+from mopidy import config as config_lib, exceptions, service
 from mopidy.audio import Audio
 from mopidy.core import Core
 from mopidy.internal import deps, process, timer, versioning
@@ -301,8 +301,9 @@ class RootCommand(Command):
                 self.configure_mixer(config, mixer)
             audio = self.start_audio(config, mixer)
             backends = self.start_backends(config, backend_classes, audio)
-            core = self.start_core(config, mixer, backends, audio)
+            core = self.start_core(audio, config, mixer, backends, backend_classes)
             self.start_frontends(config, frontend_classes, core)
+            core.notify_startup_complete()
             loop.run()
         except (exceptions.BackendError,
                 exceptions.FrontendError,
@@ -390,10 +391,10 @@ class RootCommand(Command):
 
         return backends
 
-    def start_core(self, config, mixer, backends, audio):
+    def start_core(self, audio, config, mixer, backends, backend_classes):
         logger.info('Starting Mopidy core')
-        return Core.start(
-            config=config, mixer=mixer, backends=backends, audio=audio).proxy()
+        return Core.start(audio=audio, config=config, mixer=mixer, backends=backends,
+                          backend_classes=backend_classes).proxy()
 
     def start_frontends(self, config, frontend_classes, core):
         logger.info(
@@ -403,7 +404,9 @@ class RootCommand(Command):
         for frontend_class in frontend_classes:
             with _actor_error_handling(frontend_class.__name__):
                 with timer.time_logger(frontend_class.__name__):
-                    frontend_class.start(config=config, core=core)
+                frontend = frontend_class.start(config=config, core=core).proxy()
+                if (issubclass(frontend_class, service.Service)):
+                    core.register_service(frontend, frontend_class)
 
     def stop_frontends(self, frontend_classes):
         logger.info('Stopping Mopidy frontends')

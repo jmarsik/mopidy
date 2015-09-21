@@ -54,6 +54,7 @@ Utilities
 
 .. toctree::
 
+    services
     commands
     config
     httpclient
