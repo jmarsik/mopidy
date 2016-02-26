@@ -176,6 +176,14 @@ class CoreListener(listener.Listener):
         """
         pass
 
+    def service_registered(self, service):
+        """
+        Called when the service is registered.
+
+        *MAY* be implemented by actor.
+        """
+        pass
+
     def startup_complete(self):
         """
         Called when the start-up of audio, backends, services, core and

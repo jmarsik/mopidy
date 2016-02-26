@@ -108,7 +108,7 @@ class ServiceListener(listener.Listener):
     @staticmethod
     def send(event, **kwargs):
         """Helper to allow calling of service listener events"""
-        listener.send_async(ServiceListener, event, **kwargs)
+        listener.send(ServiceListener, event, **kwargs)
 
     def service_starting(self, service):
         """

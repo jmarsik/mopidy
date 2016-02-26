@@ -404,9 +404,9 @@ class RootCommand(Command):
         for frontend_class in frontend_classes:
             with _actor_error_handling(frontend_class.__name__):
                 with timer.time_logger(frontend_class.__name__):
-                frontend = frontend_class.start(config=config, core=core).proxy()
-                if (issubclass(frontend_class, service.Service)):
-                    core.register_service(frontend, frontend_class)
+                    frontend = frontend_class.start(config=config, core=core).proxy()
+                    if (issubclass(frontend_class, service.Service)):
+                        core.register_service(frontend, frontend_class)
 
     def stop_frontends(self, frontend_classes):
         logger.info('Stopping Mopidy frontends')

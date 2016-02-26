@@ -67,13 +67,6 @@ class _Signals(object):
 
 # TODO: expose this as a property on audio?
 class _Appsrc(object):
-    def _on_debug_timer_tick(self):
-        if (self._playbin):
-            gst.DEBUG_BIN_TO_DOT_FILE(self._playbin, gst.DEBUG_GRAPH_SHOW_ALL,
-                                      self._config['audio']['debug_dump_gstreamer_dot_file'])
-            return True
-        return False
-
     def _connect(self, element, event, *args):
         """Helper to keep track of signal ids based on element+event"""
         self._signal_ids[(element, event)] = element.connect(event, *args)
@@ -91,10 +84,6 @@ class _Appsrc(object):
         """
         self.prepare(None, None, None, None)
 
-        playbin.set_property('buffer-size', 2*1024*1024)
-        playbin.set_property('buffer-duration', 2*gst.SECOND)
-        playbin.set_property('async-handling', True)
-
     def prepare(self, caps, need_data, enough_data, seek_data):
         """Store info we will need when the appsrc element gets installed."""
         self._signals.clear()
@@ -109,12 +98,6 @@ class _Appsrc(object):
         Should be called whenever we get a new appsrc.
         """
         source.set_property('caps', self._caps)
-
-        # Makes debugging gstreamer pipelines easier -- you need to set
-        # the environment variable GST_DEBUG_DUMP_DOT_DIR for the
-        # dot file to be dumped
-        if self._config['audio']['debug_dump_gstreamer_dot_file']:
-            gobject.timeout_add(2000, self._on_debug_timer_tick)
 
     def _on_about_to_finish(self, element):
         source, self._appsrc = self._appsrc, None
@@ -195,7 +178,6 @@ class _Outputs(gst.Bin):
                             description, ghost_unconnected_pads=True)
             else:
                 output = AudioOutput()
-            self._playbin.set_property('audio-sink', output)
             logger.info('Audio output set to "%s"', description)
         except gobject.GError as ex:
             logger.error(
@@ -469,6 +451,13 @@ class Audio(pykka.ThreadingActor):
         if jacksink:
             jacksink.set_rank(gst.RANK_SECONDARY)
 
+    def _on_debug_timer_tick(self):
+        if (self._playbin):
+            gst.DEBUG_BIN_TO_DOT_FILE(self._playbin, gst.DEBUG_GRAPH_SHOW_ALL,
+                                      self._config['audio']['debug_dump_gstreamer_dot_file'])
+            return True
+        return False
+
     def _setup_playbin(self):
         playbin = gst.element_factory_make('playbin2')
         playbin.set_property('flags', 2)  # GST_PLAY_FLAG_AUDIO
@@ -476,10 +465,17 @@ class Audio(pykka.ThreadingActor):
         # TODO: turn into config values...
         playbin.set_property('buffer-size', 5 << 20)  # 5MB
         playbin.set_property('buffer-duration', 5 * gst.SECOND)
+        playbin.set_property('async-handling', True)
 
         self._signals.connect(playbin, 'source-setup', self._on_source_setup)
         self._signals.connect(playbin, 'about-to-finish',
                               self._on_about_to_finish)
+
+        # Makes debugging gstreamer pipelines easier -- you need to set
+        # the environment variable GST_DEBUG_DUMP_DOT_DIR for the
+        # dot file to be dumped
+        if self._config['audio']['debug_dump_gstreamer_dot_file']:
+            gobject.timeout_add(2000, self._on_debug_timer_tick)
 
         self._playbin = playbin
         self._handler.setup_message_handling(playbin)
